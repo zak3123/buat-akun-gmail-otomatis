@@ -1,0 +1,84 @@
+from __future__ import annotations
+
+import csv
+import time
+from pathlib import Path
+
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from webdriver_manager.chrome import ChromeDriverManager
+
+from config import TARGET_URL, TIMEOUT_SECONDS, OUTPUT_DIR, build_account_data
+
+
+def get_driver() -> webdriver.Chrome:
+    options = Options()
+    options.add_argument("--disable-infobars")
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_argument("--window-size=1280,1024")
+    options.add_argument("--disable-notifications")
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option("useAutomationExtension", False)
+
+    service = Service(ChromeDriverManager().install())
+    return webdriver.Chrome(service=service, options=options)
+
+
+def wait_for_element(driver: webdriver.Chrome, by: By, value: str):
+    return WebDriverWait(driver, TIMEOUT_SECONDS).until(
+        EC.presence_of_element_located((by, value))
+    )
+
+
+def save_account(data: dict) -> None:
+    output_file = OUTPUT_DIR / "accounts.csv"
+    file_exists = output_file.exists()
+
+    with output_file.open("a", newline="", encoding="utf-8") as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=["first_name", "last_name", "username", "password", "status"])
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow({**data, "status": "created"})
+
+
+def create_account() -> dict:
+    account = build_account_data()
+    driver = get_driver()
+
+    try:
+        driver.get(TARGET_URL)
+        time.sleep(2)
+
+        # Example flow structure for a real automation implementation.
+        # Replace selector strings with actual live selectors for the target page.
+        first_name_input = wait_for_element(driver, By.NAME, "firstName")
+        first_name_input.clear()
+        first_name_input.send_keys(account["first_name"])
+
+        last_name_input = driver.find_element(By.NAME, "lastName")
+        last_name_input.clear()
+        last_name_input.send_keys(account["last_name"])
+
+        next_button = driver.find_element(By.XPATH, "//button[.//span[contains(text(),'Next')]]")
+        next_button.click()
+
+        account["status"] = "demo_step_completed"
+        save_account(account)
+        return account
+
+    except Exception as exc:
+        account["status"] = f"error: {exc.__class__.__name__}"
+        save_account(account)
+        return account
+
+    finally:
+        driver.quit()
+
+
+if __name__ == "__main__":
+    result = create_account()
+    print(result)
